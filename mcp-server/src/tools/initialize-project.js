@@ -1,10 +1,11 @@
 import { z } from 'zod';
 import {
-	createContentResponse,
 	createErrorResponse,
-	handleApiResult
+	handleApiResult,
+	withNormalizedProjectRoot
 } from './utils.js';
 import { initializeProjectDirect } from '../core/task-master-core.js';
+import { RULE_PROFILES } from '../../../src/constants/profiles.js';
 
 export function registerInitializeProjectTool(server) {
 	server.addTool({
@@ -22,8 +23,18 @@ export function registerInitializeProjectTool(server) {
 			addAliases: z
 				.boolean()
 				.optional()
-				.default(false)
+				.default(true)
 				.describe('Add shell aliases (tm, taskmaster) to shell config file.'),
+			initGit: z
+				.boolean()
+				.optional()
+				.default(true)
+				.describe('Initialize Git repository in project root.'),
+			storeTasksInGit: z
+				.boolean()
+				.optional()
+				.default(true)
+				.describe('Store tasks in Git (tasks.json and tasks/ directory).'),
 			yes: z
 				.boolean()
 				.optional()
@@ -35,20 +46,17 @@ export function registerInitializeProjectTool(server) {
 				.string()
 				.describe(
 					'The root directory for the project. ALWAYS SET THIS TO THE PROJECT ROOT DIRECTORY. IF NOT SET, THE TOOL WILL NOT WORK.'
+				),
+			rules: z
+				.array(z.enum(RULE_PROFILES))
+				.optional()
+				.describe(
+					`List of rule profiles to include at initialization. If omitted, defaults to all available profiles. Available options: ${RULE_PROFILES.join(', ')}`
 				)
 		}),
-		execute: async (args, context) => {
+		execute: withNormalizedProjectRoot(async (args, context) => {
 			const { log } = context;
 			const session = context.session;
-
-			log.info(
-				'>>> Full Context Received by Tool:',
-				JSON.stringify(context, null, 2)
-			);
-			log.info(`Context received in tool function: ${context}`);
-			log.info(
-				`Session received in tool function: ${session ? session : 'undefined'}`
-			);
 
 			try {
 				log.info(
@@ -57,12 +65,18 @@ export function registerInitializeProjectTool(server) {
 
 				const result = await initializeProjectDirect(args, log, { session });
 
-				return handleApiResult(result, log, 'Initialization failed');
+				return handleApiResult(
+					result,
+					log,
+					'Initialization failed',
+					undefined,
+					args.projectRoot
+				);
 			} catch (error) {
 				const errorMessage = `Project initialization tool failed: ${error.message || 'Unknown error'}`;
 				log.error(errorMessage, error);
 				return createErrorResponse(errorMessage, { details: error.stack });
 			}
-		}
+		})
 	});
 }
